@@ -25,13 +25,15 @@ st.set_page_config(
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+
 def get(path: str, params: dict | None = None) -> Any | None:
     try:
         resp = requests.get(f"{API_BASE}{path}", params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        st.error(f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
+        st.error(
+            f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
         return None
     except Exception as e:
         st.error(f"Request failed [{path}]: {e}")
@@ -44,7 +46,8 @@ def post(path: str) -> Any | None:
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        st.error(f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
+        st.error(
+            f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
         return None
     except Exception as e:
         st.error(f"Request failed [{path}]: {e}")
@@ -85,7 +88,8 @@ def render_sidebar() -> list[dict]:
                     st.success(f"Indexed {result['tables_indexed']} tables")
                     st.rerun()
                 else:
-                    err = result.get("error", "Unknown error") if result else "No response"
+                    err = result.get(
+                        "error", "Unknown error") if result else "No response"
                     st.error(err)
 
     st.sidebar.divider()
@@ -103,7 +107,8 @@ def render_sidebar() -> list[dict]:
 
 def render_search_page():
     st.title("Data Scout")
-    st.markdown("Search across **tables** and **columns** in all indexed data sources.")
+    st.markdown(
+        "Search across **tables** and **columns** in all indexed data sources.")
 
     col_input, col_btn = st.columns([5, 1])
     with col_input:
@@ -114,14 +119,16 @@ def render_search_page():
             key="search_query",
         )
     with col_btn:
-        search_clicked = st.button("Search", type="primary", use_container_width=True)
+        search_clicked = st.button(
+            "Search", type="primary", use_container_width=True)
 
     if not query:
         st.info("Enter a search term above to discover tables and columns.")
         return
 
     if query:
-        results: list[dict] | None = get("/api/search", params={"q": query, "limit": 50})
+        results: list[dict] | None = get(
+            "/api/search", params={"q": query, "limit": 50})
         if results is None:
             return
 
@@ -170,7 +177,8 @@ def render_result_card(res: dict):
         if columns:
             col_names = [c["name"] for c in columns]
             if col_name:
-                col_labels = [f"**{c}**" if c == col_name else c for c in col_names]
+                col_labels = [f"**{c}**" if c ==
+                              col_name else c for c in col_names]
             else:
                 col_labels = col_names
             st.caption(
@@ -196,7 +204,8 @@ def render_result_card(res: dict):
                             for c in col_data
                         ]
                     )
-                    st.dataframe(df_schema, use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        df_schema, use_container_width=True, hide_index=True)
 
                 sample = schema.get("sample_rows", [])
                 if sample:
@@ -221,7 +230,8 @@ def render_browse_page():
         return
 
     if not tables:
-        st.warning("No tables indexed yet. Use the sidebar to index sources first.")
+        st.warning(
+            "No tables indexed yet. Use the sidebar to index sources first.")
         return
 
     # Group by source_id

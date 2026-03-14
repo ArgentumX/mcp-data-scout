@@ -11,6 +11,8 @@ Run:
   python -m server.server
 """
 
+from search.engine import SearchEngine
+from index.indexer import MetadataIndexer
 import os
 import sys
 from pathlib import Path
@@ -27,9 +29,7 @@ ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from index.indexer import MetadataIndexer
 from server.registry import build_default_registry  # noqa: E402
-from search.engine import SearchEngine
 
 # ---------------------------------------------------------------------------
 # Config
