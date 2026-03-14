@@ -6,6 +6,10 @@ Allows AI agents and humans to search for tables, columns, and data across multi
 ## Quick Start
 
 ```bash
+cp .env.example .env
+```
+
+```bash
 docker compose up --build
 ```
 

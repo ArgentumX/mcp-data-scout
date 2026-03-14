@@ -35,9 +35,9 @@ from server.registry import build_default_registry  # noqa: E402
 # Config
 # ---------------------------------------------------------------------------
 
-INDEX_DB = os.getenv("INDEX_DB_PATH", "/data/index.db")
-HOST = os.getenv("MCP_HOST", "0.0.0.0")
-PORT = int(os.getenv("MCP_PORT", "8000"))
+INDEX_DB = os.getenv("INDEX_DB_PATH")
+HOST = os.getenv("MCP_HOST")
+PORT = int(os.getenv("MCP_PORT"))
 
 # ---------------------------------------------------------------------------
 # Singletons

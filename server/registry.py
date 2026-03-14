@@ -11,8 +11,8 @@ from connectors.csv_connector import CSVConnector
 from connectors.sqlite_connector import SQLiteConnector
 
 # Defaults for Docker Compose environment
-DEFAULT_SQLITE_PATH = os.getenv("SQLITE_DB_PATH", "/data/sqlite/sample.db")
-DEFAULT_CSV_DIR = os.getenv("CSV_DIR", "/data/csv")
+DEFAULT_SQLITE_PATH = os.getenv("SQLITE_DB_PATH")
+DEFAULT_CSV_DIR = os.getenv("CSV_DIR")
 
 
 class SourceRegistry:

@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ui/ ./ui/
 
 ENV PYTHONPATH=/app
-ENV API_BASE_URL=http://mcp:8000
 
 EXPOSE 8501
 

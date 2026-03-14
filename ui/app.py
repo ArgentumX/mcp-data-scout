@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-API_BASE = os.getenv("API_BASE_URL", "http://mcp:8000")
+API_BASE = os.getenv("API_BASE_URL")
 
 st.set_page_config(
     page_title="Data Scout",

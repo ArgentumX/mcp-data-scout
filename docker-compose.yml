@@ -8,12 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - data_volume:/data
-    environment:
-      SQLITE_DB_PATH: /data/sqlite/sample.db
-      CSV_DIR: /data/csv
-      INDEX_DB_PATH: /data/index.db
-      MCP_HOST: "0.0.0.0"
-      MCP_PORT: "8000"
+    env_file:
+      - .env
     healthcheck:
       test:
         [
@@ -34,8 +30,8 @@ services:
     container_name: data-scout-ui
     ports:
       - "8501:8501"
-    environment:
-      API_BASE_URL: http://mcp:8000
+    env_file:
+      - .env
     depends_on:
       mcp:
         condition: service_healthy
