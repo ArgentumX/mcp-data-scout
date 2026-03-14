@@ -6,12 +6,12 @@ CSV_DIR="${CSV_DIR:-/data/csv}"
 
 # Seed data if SQLite database doesn't exist yet
 if [ ! -f "$DB_PATH" ]; then
-    echo "[entrypoint] Seeding sample data..."
-    python /app/scripts/seed_data.py
-    echo "[entrypoint] Seed complete."
+  echo "[entrypoint] Seeding sample data..."
+  python3 /app/scripts/seed_data.py
+  echo "[entrypoint] Seed complete."
 else
-    echo "[entrypoint] Data already present, skipping seed."
+  echo "[entrypoint] Data already present, skipping seed."
 fi
 
 echo "[entrypoint] Starting Data Scout server..."
-exec python -m server.server
+exec python3 -m server.server

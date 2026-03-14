@@ -12,6 +12,7 @@ COPY index/ ./index/
 COPY search/ ./search/
 COPY server/ ./server/
 COPY scripts/ ./scripts/
+COPY scripts/entrypoint.sh /app/scripts/entrypoint.sh
 
 # Create data directories
 RUN mkdir -p /data/sqlite /data/csv
