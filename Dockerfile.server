@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source
+COPY connectors/ ./connectors/
+COPY index/ ./index/
+COPY search/ ./search/
+COPY server/ ./server/
+COPY scripts/ ./scripts/
+
+# Create data directories
+RUN mkdir -p /data/sqlite /data/csv
+
+ENV PYTHONPATH=/app
+ENV SQLITE_DB_PATH=/data/sqlite/sample.db
+ENV CSV_DIR=/data/csv
+ENV INDEX_DB_PATH=/data/index.db
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8000
+
+EXPOSE 8000
+
+RUN chmod +x /app/scripts/entrypoint.sh
+
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
