@@ -14,11 +14,6 @@ COPY server/ ./server/
 COPY scripts/ ./scripts/
 COPY scripts/entrypoint.sh /app/scripts/entrypoint.sh
 
-# Create data directories
-RUN mkdir -p /data/sqlite /data/csv
-
-ENV PYTHONPATH=/app
-
 EXPOSE 8000
 
 RUN chmod +x /app/scripts/entrypoint.sh

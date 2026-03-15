@@ -12,6 +12,7 @@ from server.mcp_app import mcp
 def build_app() -> FastAPI:
     """Build the combined ASGI application."""
     api = create_api_app()
+
     sse_app = create_sse_app(
         server=mcp,
         sse_path="/sse",

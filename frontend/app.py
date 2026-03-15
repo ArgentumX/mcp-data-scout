@@ -236,7 +236,7 @@ def render_search_page(sources: list[dict]) -> None:
             key="search_query",
         )
     with col_btn:
-        search_clicked = st.button("Search", type="primary", use_container_width=True)
+        search_clicked = st.button("Search", type="primary", width='stretch')
 
     # Filters
     indexed_source_ids = [s["source_id"] for s in sources if s.get("is_indexed")]
@@ -314,10 +314,10 @@ def render_search_page(sources: list[dict]) -> None:
         source_type = source_results[0].get("source_type", "")
         if source_type == "sqlite":
             badge = "🗄️ SQLite"
-        elif source_type == "csv_file":
-            badge = "📄 CSV (file)"
-        else:
+        elif source_type == "csv":
             badge = "📄 CSV"
+        else:
+            badge = "📄"
 
         # Collapsible per-source section (expanded by default)
         with st.expander(f"{badge} — `{source_id}` ({len(source_results)} result(s))", expanded=True):
@@ -363,7 +363,7 @@ def render_result_card(res: dict) -> None:
         if matched_row:
             if matched_row_number is not None:
                 st.caption(f"Sample row #{matched_row_number}")
-            st.dataframe(pd.DataFrame([matched_row]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame([matched_row]), width='stretch', hide_index=True)
 
         with st.expander("View schema & sample data"):
             schema: dict | None = get(f"/api/schema/{source_id}/{table_path}")
@@ -379,12 +379,12 @@ def render_result_card(res: dict) -> None:
                         }
                         for c in col_data
                     ])
-                    st.dataframe(df_schema, use_container_width=True, hide_index=True)
+                    st.dataframe(df_schema, width='stretch', hide_index=True)
 
                 sample = schema.get("sample_rows", [])
                 if sample:
                     st.markdown("**Sample rows**")
-                    st.dataframe(pd.DataFrame(sample), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(sample), width='stretch', hide_index=True)
             elif schema:
                 st.error(schema.get("error", "Failed to load schema"))
 
@@ -417,7 +417,7 @@ def render_browse_page() -> None:
         source_type = source_tables[0].get("source_type", "")
         if source_type == "sqlite":
             badge = "🗄️"
-        elif source_type == "csv_file":
+        elif source_type == "csv":
             badge = "📄"
         else:
             badge = "📄"
@@ -437,7 +437,7 @@ def render_browse_page() -> None:
                         }
                         for c in cols
                     ])
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.dataframe(df, width='stretch', hide_index=True)
 
         st.divider()
 

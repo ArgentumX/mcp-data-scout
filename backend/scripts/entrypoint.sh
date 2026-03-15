@@ -1,7 +1,8 @@
 #!/bin/sh
 set -e
 
-DB_PATH="${SQLITE_DB_PATH:-/data/sqlite/sample.db}"
+UPLOADS_DIR="${UPLOADS_DIR:-/data/uploads}"
+DB_PATH="${UPLOADS_DIR}/sqlite_main.db"
 SEED="${SEED:-false}"
 
 # Seed data only when SEED=true and the DB hasn't been created yet

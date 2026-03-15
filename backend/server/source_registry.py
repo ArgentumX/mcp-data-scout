@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 
 from connectors.abstraction.base import BaseConnector, IndexingRules, SourceInfo
-from connectors.csv_connector import CSVFileConnector  # noqa: F401 — re-exported for api_app
+from connectors.csv_connector import CSVConnector  # noqa: F401 — re-exported for api_app
 from connectors.sqlite_connector import SQLiteConnector  # noqa: F401 — re-exported for api_app
 
 logger = logging.getLogger(__name__)
@@ -148,12 +148,12 @@ class SourceRegistry:
     def _restore_entry(self, entry: dict) -> None:
         source_type = entry["source_type"]
         rules = _indexing_rules_from_dict(entry.get("indexing_rules") or {})
-        if source_type == "csv_file":
+        if source_type == "csv":
             path = Path(entry["location"])
             if not path.exists():
                 logger.warning("Manifest CSV file missing, skipping: %s", path)
                 return
-            connector = CSVFileConnector(
+            connector = CSVConnector(
                 source_id=entry["source_id"],
                 file_path=str(path),
                 description=entry.get("description", ""),

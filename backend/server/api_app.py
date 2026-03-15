@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from server.config import MASTER_API_KEY
 from server.mcp_app import get_schema, index_source, list_sources, search
 from server.services import indexer, registry
-from connectors.csv_connector import CSVFileConnector
+from connectors.csv_connector import CSVConnector
 from connectors.sqlite_connector import SQLiteConnector
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def create_api_app() -> FastAPI:
         path = request.url.path.rstrip("/") or "/"
         public_paths = {"/health", "/docs", "/openapi.json"}
 
-        if path in public_paths or not path.startswith("/api"):
+        if path in public_paths:
             return await call_next(request)
 
         if not MASTER_API_KEY:
@@ -171,7 +171,7 @@ def create_api_app() -> FastAPI:
         content = await file.read()
         dest.write_bytes(content)
 
-        connector = CSVFileConnector(
+        connector = CSVConnector(
             source_id=source_id,
             file_path=str(dest),
             description=description or f"Uploaded CSV: {file.filename}",

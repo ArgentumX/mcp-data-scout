@@ -1,7 +1,31 @@
 # MCP Data Scout
 
 A **Data Discovery Tool** built as an MCP (Model Context Protocol) server.
-Allows AI agents and humans to search for tables, columns, and data across multiple data sources.
+Allows AI agents and humans to search for tables, columns, and data across multiple data sources (CSV/Sqlite).
+
+## 📋 Navigation
+
+- [Quick Start](#quick-start)
+- [MCP Quick Test](#mcp-quick-test)
+- [Architecture](#architecture)
+  - [Component breakdown](#component-breakdown)
+- [Seeded data description](#seeded-data-description)
+- [Adding Your Own Data](#adding-your-own-data)
+  - [Via the Web UI](#via-the-web-ui)
+  - [Indexing Rules JSON](#indexing-rules-json)
+- [MCP Tools](#mcp-tools)
+  - [`list_sources()`](#listsources)
+  - [`index_source(source_id)`](#index_sourcesource_id)
+  - [`search(query, limit?, source_ids?, match_types?)`](#searchquery-limit-source_ids-match_types)
+  - [`get_schema(source_id, path)`](#get_schemasource_id-path)
+- [REST API](#rest-api)
+- [Connecting an AI Agent](#connecting-an-ai-agent)
+  - [Claude Desktop / Cursor](#claude-desktop--cursor)
+- [Project Structure](#project-structure)
+- [Environment Variables](#environment-variables)
+- [Search Index Design](#search-index-design)
+
+---
 
 ## Quick Start
 
@@ -17,9 +41,27 @@ docker compose up --build
 - **REST API / MCP server**: http://localhost:8000
 - **API docs**: http://localhost:8000/docs
 
-On first startup the server auto-generates sample data (SQLite + CSV).
-Then click **"Index All Sources"** in the sidebar to index them.
+On first startup the server auto-generates sample data if env var SEED is "true" (SQLite + CSV).
+Enter `MASTER_API_KEY` from `.env` to field
+Then click **"Index All Sources"** in the frontend sidebar to index them.
 
+---
+
+## MCP Quick Test
+
+start mcp-data-scout (Quick Start)
+
+```bash
+cd mcp-test
+```
+
+```bash
+docker build -t mcp-data-scout-test .
+```
+
+```bash
+docker run --network host mcp-data-scout-test
+```
 ---
 
 ## Architecture
@@ -36,9 +78,9 @@ Then click **"Index All Sources"** in the sidebar to index them.
 │                                       │             │
 │                             ┌─────────▼──────────┐  │
 │                             │   /data  (volume)  │  │
-│                             │   sqlite/sample.db │  │
-│                             │   csv/*.csv        │  │
 │                             │   uploads/         │  │
+│                             │   sqlite_main.db   │  │
+│                             │   *.csv            │  │
 │                             │   index.db (FTS5)  │  │
 │                             │   sources.json     │  │
 │                             └────────────────────┘  │
@@ -50,7 +92,9 @@ Then click **"Index All Sources"** in the sidebar to index them.
 | Layer | Module | Responsibility |
 |-------|--------|----------------|
 | **Connectors** | `connectors/` | Read schemas & data from sources |
-| **CSVFileConnector** | `connectors/csv_connector.py` | Single-file CSV connector (per upload) |
+| **IndexingRules** | `connectors/abstraction/base.py` | Customizes indexing rules for each single connector |
+| **CSVConnector** | `connectors/csv_connector.py` | Single-file CSV connector |
+| **SQLiteConnector** | `connectors/sqlite_connector.py` | Single-file SQLite connector |
 | **Indexer** | `index/indexer.py` | Store metadata in SQLite FTS5 index |
 | **Search** | `search/engine.py` | Full-text + LIKE search over metadata |
 | **MCP Tools** | `server/mcp_app.py` | FastMCP tool definitions (SSE endpoint) |
@@ -60,12 +104,14 @@ Then click **"Index All Sources"** in the sidebar to index them.
 
 ---
 
-## Built-in Test Data Sources
+## Seeded data description
 
 | ID | Type | Description |
 |----|------|-------------|
-| `sqlite_main` | SQLite | Business database: customers, orders, products, employees, order_items |
-| `csv_datasets` | CSV (directory) | Flat files: sales_regions, marketing_campaigns, inventory_snapshot |
+| `seeded_sqlite_main` | SQLite | Business database: customers, orders, products, employees, order_items |
+| `seeded_sales_regions` | CSV | Regional sales data |
+| `seeded_marketing_campaigns` | CSV | Marketing campaign performance data |
+| `seeded_inventory_snapshot` | CSV | Inventory snapshot across warehouses |
 
 ---
 
@@ -82,25 +128,6 @@ Uploaded files are stored under `/data/uploads/` and survive container restarts 
 sources manifest at `/data/sources.json`.
 
 After uploading, click **Index now** next to the new source in the sidebar.
-
-### Via the REST API
-
-```bash
-# Upload a CSV file
-curl -X POST http://localhost:8000/api/upload/csv \
-  -H "X-API-Key: $MASTER_API_KEY" \
-  -F "file=@/path/to/data.csv" \
-  -F "source_id=my_data" \
-  -F "description=My custom dataset" \
-  -F 'indexing_rules_json={"row_value_columns":{"data":["name","city"]}}'
-
-# Upload a SQLite database
-curl -X POST http://localhost:8000/api/upload/sqlite \
-  -H "X-API-Key: $MASTER_API_KEY" \
-  -F "file=@/path/to/db.sqlite" \
-  -F "source_id=my_db" \
-  -F "description=My SQLite database"
-```
 
 ### Indexing Rules JSON
 
@@ -148,7 +175,7 @@ Returns all registered data sources with indexing status.
     "source_id": "sqlite_main",
     "source_type": "sqlite",
     "description": "Main SQLite database with business data",
-    "location": "/data/sqlite/sample.db",
+    "location": "/data/uploads/sqlite_main.db",
     "is_indexed": true
   }
 ]
@@ -220,8 +247,12 @@ Add to your MCP config:
 ```json
 {
   "mcpServers": {
+    "type": "sse",
     "data-scout": {
       "url": "http://localhost:8000/mcp/sse"
+    },
+    "headers": {
+      "X-API-KEY": "DEV_MASTER_API_KEY"
     }
   }
 }
@@ -244,7 +275,7 @@ mcp-data-scout/
 ├── backend/
 │   ├── connectors/
 │   │   ├── abstraction/base.py      # BaseConnector, IndexingRules, data models
-│   │   ├── csv_connector.py         # CSV directory connector + CSVFileConnector
+│   │   ├── csv_connector.py         # Single-file CSV connector
 │   │   └── sqlite_connector.py      # SQLite connector
 │   ├── index/
 │   │   └── indexer.py               # SQLite FTS5 metadata indexer
@@ -273,15 +304,14 @@ mcp-data-scout/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SQLITE_DB_PATH` | `/data/sqlite/sample.db` | Path to the built-in SQLite database |
-| `CSV_DIR` | `/data/csv` | Directory containing built-in CSV files |
 | `UPLOADS_DIR` | `/data/uploads` | Directory where user-uploaded files are stored |
 | `SOURCES_MANIFEST` | `/data/sources.json` | JSON file persisting dynamically added sources |
 | `INDEX_DB_PATH` | `/data/index.db` | Path to FTS5 index database |
 | `MCP_HOST` | `0.0.0.0` | Server bind address |
 | `MCP_PORT` | `8000` | Server port |
 | `API_BASE_URL` | `http://backend:8000` | Backend URL used by the Streamlit UI |
-| `MASTER_API_KEY` | — | Required. API key for all `/api/*` endpoints |
+| `MASTER_API_KEY` | `DEV_MASTER_API_KEY` | Required. API key for the most endpoints |
+| `SEED` | `true` | Flag for data sources seeding |
 
 ---
 
@@ -298,5 +328,3 @@ Search strategy (priority order):
 1. FTS5 prefix match — fast, ranked by BM25 relevance
 2. `LIKE %query%` fallback — catches partial mid-word matches
 
-When a table matches the query, its columns and rows are suppressed in results
-(they are redundant). Results are sorted: tables first, then columns, then rows.

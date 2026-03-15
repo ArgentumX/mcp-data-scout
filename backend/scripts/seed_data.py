@@ -1,16 +1,16 @@
 """
 Seed script: creates realistic sample data in SQLite and CSV,
-then registers all sources (SQLite + per-file CSV connectors) into the
+then registers all sources (SQLite + CSV connectors) into the
 shared manifest so the server picks them up on startup.
 
-SQLite database (sample.db):
+SQLite database:
   - customers      — client profiles
   - orders         — purchase orders
   - products       — product catalogue
   - order_items    — order line items
   - employees      — company staff
 
-CSV files (written to UPLOADS_DIR, each gets its own CSVFileConnector):
+CSV files (written to UPLOADS_DIR, each gets its own CSVConnector):
   - sales_regions.csv       — regional sales data
   - marketing_campaigns.csv — campaign performance
   - inventory_snapshot.csv  — stock levels
@@ -23,10 +23,14 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-SQLITE_PATH = Path(os.getenv("SQLITE_DB_PATH") or "/data/sqlite/sample.db")
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR") or "/data/uploads")
+SQLITE_FILENAME = "seeded_sqlite_main.db"
 SEED = 42
 random.seed(SEED)
+
+def get_seed_sqlite_path() -> Path:
+    return UPLOADS_DIR / SQLITE_FILENAME
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,11 +66,12 @@ PRODUCT_NAMES = [
 # ---------------------------------------------------------------------------
 
 def seed_sqlite():
-    SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if SQLITE_PATH.exists():
-        SQLITE_PATH.unlink()
+    sqlite_path = get_seed_sqlite_path()
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    if sqlite_path.exists():
+        sqlite_path.unlink()
 
-    conn = sqlite3.connect(SQLITE_PATH)
+    conn = sqlite3.connect(sqlite_path)
     cur = conn.cursor()
 
     # -- customers --
@@ -208,7 +213,7 @@ def seed_sqlite():
 
     conn.commit()
     conn.close()
-    print(f"SQLite seeded: {SQLITE_PATH}")
+    print(f"SQLite seeded: {sqlite_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +251,8 @@ def seed_csv() -> list[tuple[str, Path, str]]:
                 new_cust = random.randint(10, 300)
                 return_rate = round(random.uniform(0.5, 8.0), 2)
                 rows.append([region, month, year, revenue, units, new_cust, return_rate])
-    path = write_csv("sales_regions.csv", headers, rows)
-    results.append(("sales_regions", path, "Regional sales data (2023–2024)"))
+    path = write_csv("seeded_sales_regions.csv", headers, rows)
+    results.append(("seeded_sales_regions", path, "Regional sales data (2023–2024)"))
 
     # marketing_campaigns.csv
     channels = ["Email", "Social Media", "Search Ads", "Display Ads",
@@ -268,8 +273,8 @@ def seed_csv() -> list[tuple[str, Path, str]]:
         revenue = round(conversions * random.uniform(20, 500), 2)
         rows.append([i, name, channel, sd, ed, budget, impressions,
                      clicks, conversions, revenue])
-    path = write_csv("marketing_campaigns.csv", headers, rows)
-    results.append(("marketing_campaigns", path, "Marketing campaign performance data"))
+    path = write_csv("seeded_marketing_campaigns.csv", headers, rows)
+    results.append(("seeded_marketing_campaigns", path, "Marketing campaign performance data"))
 
     # inventory_snapshot.csv
     headers = ["product_id", "product_name", "category", "warehouse",
@@ -298,8 +303,8 @@ def seed_csv() -> list[tuple[str, Path, str]]:
             restock = rand_date(date(2024, 1, 1), date(2025, 3, 1))
             cost = round(price * random.uniform(0.3, 0.7), 2)
             rows.append([pid, name, cat, wh, qty, reserved, reorder, restock, cost])
-    path = write_csv("inventory_snapshot.csv", headers, rows)
-    results.append(("inventory_snapshot", path, "Inventory snapshot across warehouses"))
+    path = write_csv("seeded_inventory_snapshot.csv", headers, rows)
+    results.append(("seeded_inventory_snapshot", path, "Inventory snapshot across warehouses"))
 
     return results
 
@@ -322,7 +327,7 @@ def register_seeded_sources(csv_sources: list[tuple[str, Path, str]]) -> None:
         _indexing_rules_to_dict,
     )
     from connectors.sqlite_connector import SQLiteConnector
-    from connectors.csv_connector import CSVFileConnector
+    from connectors.csv_connector import CSVConnector
     from connectors.abstraction.base import IndexingRules
 
     SQLITE_INDEXING_RULES = IndexingRules(
@@ -347,8 +352,8 @@ def register_seeded_sources(csv_sources: list[tuple[str, Path, str]]) -> None:
 
     # Register SQLite source as dynamic so it appears in the manifest
     sqlite_connector = SQLiteConnector(
-        source_id="sqlite_main",
-        db_path=str(SQLITE_PATH),
+        source_id="seeded_sqlite_main",
+        db_path=str(get_seed_sqlite_path()),
         description="Main SQLite database with business data",
         indexing_rules=SQLITE_INDEXING_RULES,
     )
@@ -356,7 +361,7 @@ def register_seeded_sources(csv_sources: list[tuple[str, Path, str]]) -> None:
 
     # Register each CSV file as its own dynamic source
     for source_id, file_path, description in csv_sources:
-        connector = CSVFileConnector(
+        connector = CSVConnector(
             source_id=source_id,
             file_path=str(file_path),
             description=description,

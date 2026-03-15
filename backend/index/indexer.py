@@ -8,11 +8,11 @@ from typing import Any
 from connectors.abstraction.base import BaseConnector, TableMeta
 
 
-INDEX_DB_PATH = Path("/data/index.db")
+DEFAULT_INDEX_DB_PATH = Path("/data/index.db")
 
 
 class MetadataIndexer:
-    def __init__(self, index_db: str | Path = INDEX_DB_PATH):
+    def __init__(self, index_db: str | Path = DEFAULT_INDEX_DB_PATH):
         self.index_db = Path(index_db)
         self.index_db.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
