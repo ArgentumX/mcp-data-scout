@@ -34,6 +34,10 @@ git clone https://github.com/ArgentumX/mcp-data-scout.git
 ```
 
 ```bash
+cd mcp-data-scout
+```
+
+```bash
 cp .env.example .env
 ```
 
