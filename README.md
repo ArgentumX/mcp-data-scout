@@ -1,7 +1,7 @@
 # MCP Data Scout
 
 A **Data Discovery Tool** built as an MCP (Model Context Protocol) server.
-Allows AI agents and humans to search for tables, columns, and data across multiple data sources (CSV/Sqlite).
+Allows AI agents and humans to search for tables, columns, and data across multiple data sources (CSV/Sqlite) with ability to upload new data sources.
 
 ## 📋 Navigation
 
@@ -14,7 +14,7 @@ Allows AI agents and humans to search for tables, columns, and data across multi
   - [Via the Web UI](#via-the-web-ui)
   - [Indexing Rules JSON](#indexing-rules-json)
 - [MCP Tools](#mcp-tools)
-  - [`list_sources()`](#listsources)
+  - [`list_sources()`](#list_sources)
   - [`index_source(source_id)`](#index_sourcesource_id)
   - [`search(query, limit?, source_ids?, match_types?)`](#searchquery-limit-source_ids-match_types)
   - [`get_schema(source_id, path)`](#get_schemasource_id-path)
@@ -45,6 +45,9 @@ On first startup the server auto-generates sample data if env var SEED is "true"
 Enter `MASTER_API_KEY` from `.env` to field
 Then click **"Index All Sources"** in the frontend sidebar to index them.
 
+![alt text](mcp-test/git-images-didnt-work/screen1.png)
+![alt text](mcp-test/git-images-didnt-work/screen3.png)
+![alt text](mcp-test/git-images-didnt-work/screen2.png)
 ---
 
 ## MCP Quick Test
