@@ -30,6 +30,10 @@ Allows AI agents and humans to search for tables, columns, and data across multi
 ## Quick Start
 
 ```bash
+git clone https://github.com/ArgentumX/mcp-data-scout.git
+```
+
+```bash
 cp .env.example .env
 ```
 
@@ -43,6 +47,7 @@ docker compose up --build
 
 On first startup the server auto-generates sample data if env var SEED is "true" (SQLite + CSV).
 Enter `MASTER_API_KEY` from `.env` to field
+
 Then click **"Index All Sources"** in the frontend sidebar to index them.
 
 ![alt text](mcp-test/git-images-didnt-work/screen1.png)
