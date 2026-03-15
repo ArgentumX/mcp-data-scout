@@ -5,6 +5,7 @@ Communicates with the backend via the REST API
 exposed by server/server.py on /api/* endpoints.
 """
 
+import json
 import os
 from typing import Any
 
@@ -17,6 +18,13 @@ API_KEY_HEADER = "X-API-Key"
 
 if "api_key" not in st.session_state:
     st.session_state["api_key"] = ""
+
+# Tracks the last committed search so that results don't change
+# when the user edits filters without clicking Search.
+if "committed_query" not in st.session_state:
+    st.session_state["committed_query"] = ""
+if "committed_params" not in st.session_state:
+    st.session_state["committed_params"] = None
 
 st.set_page_config(
     page_title="Data Scout",
@@ -85,9 +93,32 @@ def get(path: str, params: Any = None) -> Any | None:
         return None
 
 
-def post(path: str) -> Any | None:
+def post(path: str, data: dict | None = None, files: dict | None = None) -> Any | None:
     try:
-        resp = requests.post(f"{API_BASE}{path}", headers=get_headers(), timeout=15)
+        resp = requests.post(
+            f"{API_BASE}{path}",
+            headers=get_headers(),
+            data=data,
+            files=files,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.ConnectionError:
+        st.error(f"Cannot connect to backend at {API_BASE}. Is the server running?")
+        return None
+    except Exception as e:
+        handle_request_error(path, e)
+        return None
+
+
+def delete(path: str) -> Any | None:
+    try:
+        resp = requests.delete(
+            f"{API_BASE}{path}",
+            headers=get_headers(),
+            timeout=10,
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
@@ -129,33 +160,55 @@ def render_sidebar() -> list[dict]:
 
     if not sources:
         st.sidebar.info("No sources configured")
-        return []
-
-    for src in sources:
-        indexed = src.get("is_indexed", False)
-        icon = "✅" if indexed else "⚪"
-        with st.sidebar.expander(f"{icon} {src['source_id']}", expanded=False):
-            st.write(f"**Type:** `{src['source_type']}`")
-            st.write(f"**Description:** {src['description']}")
-            st.write(f"**Location:** `{src['location']}`")
-            btn_label = "Re-index" if indexed else "Index now"
-            if st.button(btn_label, key=f"idx_{src['source_id']}"):
-                with st.spinner(f"Indexing {src['source_id']}..."):
-                    result = post(f"/api/index/{src['source_id']}")
-                if result and result.get("success"):
-                    st.success(f"Indexed {result['tables_indexed']} tables")
-                    st.rerun()
-                else:
-                    err = result.get("error", "Unknown error") if result else "No response"
-                    st.error(err)
+    else:
+        for src in sources:
+            indexed = src.get("is_indexed", False)
+            is_dynamic = src.get("is_dynamic", False)
+            icon = "✅" if indexed else "⚪"
+            label = f"{icon} {src['source_id']}"
+            if is_dynamic:
+                label += " 📤"
+            with st.sidebar.expander(label, expanded=False):
+                st.write(f"**Type:** `{src['source_type']}`")
+                st.write(f"**Description:** {src['description']}")
+                st.write(f"**Location:** `{src['location']}`")
+                btn_label = "Re-index" if indexed else "Index now"
+                col_btn, col_del = st.columns([2, 1])
+                with col_btn:
+                    if st.button(btn_label, key=f"idx_{src['source_id']}"):
+                        with st.spinner(f"Indexing {src['source_id']}..."):
+                            result = post(f"/api/index/{src['source_id']}")
+                        if result and result.get("success"):
+                            st.success(f"Indexed {result['tables_indexed']} tables")
+                            st.rerun()
+                        else:
+                            err = result.get("error", "Unknown error") if result else "No response"
+                            st.error(err)
+                if is_dynamic:
+                    with col_del:
+                        if st.button("Delete", key=f"del_{src['source_id']}", type="secondary"):
+                            result = delete(f"/api/sources/{src['source_id']}")
+                            if result and result.get("success"):
+                                st.success(f"Removed {src['source_id']}")
+                                st.rerun()
 
     st.sidebar.divider()
     if st.sidebar.button("Index All Sources", type="primary"):
         with st.spinner("Indexing all sources..."):
-            post("/api/index-all")
-        st.rerun()
+            result = post("/api/index-all")
+        if result is None:
+            st.sidebar.error("No response from backend.")
+        elif result.get("success"):
+            st.sidebar.success("All sources indexed successfully.")
+            st.rerun()
+        else:
+            failed = result.get("failed", [])
+            st.sidebar.error(
+                f"Indexing completed with errors. Failed sources: {', '.join(failed) or 'unknown'}"
+            )
+            st.rerun()
 
-    return sources
+    return sources or []
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +236,7 @@ def render_search_page(sources: list[dict]) -> None:
             key="search_query",
         )
     with col_btn:
-        st.button("Search", type="primary", use_container_width=True)
+        search_clicked = st.button("Search", type="primary", use_container_width=True)
 
     # Filters
     indexed_source_ids = [s["source_id"] for s in sources if s.get("is_indexed")]
@@ -209,35 +262,44 @@ def render_search_page(sources: list[dict]) -> None:
         with type_cols[2]:
             st.checkbox("Rows", value=True, key="filter_type_row")
 
-    if not query:
-        st.info("Enter a search term above to discover tables and columns.")
+    # Only fire search when the button is explicitly clicked
+    if search_clicked:
+        if not query:
+            st.session_state["committed_query"] = ""
+            st.session_state["committed_params"] = None
+        else:
+            params: list[tuple[str, str]] = [("q", query), ("limit", "50")]
+
+            selected_sources = [
+                sid for sid in indexed_source_ids
+                if st.session_state.get(f"filter_src_{sid}", True)
+            ]
+            for sid in selected_sources:
+                params.append(("source_ids", sid))
+
+            selected_types = [
+                t for t in ("table", "column", "row")
+                if st.session_state.get(f"filter_type_{t}", True)
+            ]
+            for t in selected_types:
+                params.append(("match_types", t))
+
+            st.session_state["committed_query"] = query
+            st.session_state["committed_params"] = params
+
+    committed_query = st.session_state.get("committed_query", "")
+    committed_params = st.session_state.get("committed_params")
+
+    if not committed_query or committed_params is None:
+        st.info("Enter a search term above and click **Search** to discover tables and columns.")
         return
 
-    # Build query params as list of (key, value) tuples so that repeated
-    # keys are sent correctly: ?source_ids=a&source_ids=b
-    # FastAPI with Query() annotation parses these as list[str].
-    params: list[tuple[str, str]] = [("q", query), ("limit", "50")]
-
-    selected_sources = [
-        sid for sid in indexed_source_ids
-        if st.session_state.get(f"filter_src_{sid}", True)
-    ]
-    for sid in selected_sources:
-        params.append(("source_ids", sid))
-
-    selected_types = [
-        t for t in ("table", "column", "row")
-        if st.session_state.get(f"filter_type_{t}", True)
-    ]
-    for t in selected_types:
-        params.append(("match_types", t))
-
-    results: list[dict] | None = get("/api/search", params=params)
+    results: list[dict] | None = get("/api/search", params=committed_params)
     if results is None:
         return
 
     if not results:
-        st.warning(f"No results found for **{query}**")
+        st.warning(f"No results found for **{committed_query}**")
         return
 
     # Group by source
@@ -245,16 +307,22 @@ def render_search_page(sources: list[dict]) -> None:
     for r in results:
         by_source.setdefault(r["source_id"], []).append(r)
 
-    st.markdown(f"**{len(results)} result(s)** for `{query}`")
+    st.markdown(f"**{len(results)} result(s)** for `{committed_query}`")
     st.divider()
 
     for source_id, source_results in by_source.items():
         source_type = source_results[0].get("source_type", "")
-        badge = "🗄️ SQLite" if source_type == "sqlite" else "📄 CSV"
-        st.subheader(f"{badge} — `{source_id}`")
-        for res in source_results:
-            render_result_card(res)
-        st.divider()
+        if source_type == "sqlite":
+            badge = "🗄️ SQLite"
+        elif source_type == "csv_file":
+            badge = "📄 CSV (file)"
+        else:
+            badge = "📄 CSV"
+
+        # Collapsible per-source section (expanded by default)
+        with st.expander(f"{badge} — `{source_id}` ({len(source_results)} result(s))", expanded=True):
+            for res in source_results:
+                render_result_card(res)
 
 
 def render_result_card(res: dict) -> None:
@@ -347,7 +415,12 @@ def render_browse_page() -> None:
 
     for source_id, source_tables in by_source.items():
         source_type = source_tables[0].get("source_type", "")
-        badge = "🗄️" if source_type == "sqlite" else "📄"
+        if source_type == "sqlite":
+            badge = "🗄️"
+        elif source_type == "csv_file":
+            badge = "📄"
+        else:
+            badge = "📄"
         st.subheader(f"{badge} {source_id}")
         st.caption(f"{len(source_tables)} table(s)")
 
@@ -370,17 +443,202 @@ def render_browse_page() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Upload page
+# ---------------------------------------------------------------------------
+
+_INDEXING_RULES_HELP = """
+Optional JSON to control which tables/columns are indexed and whether row values
+are searchable. All fields are optional. Example:
+
+```json
+{
+  "exclude_tables": ["log", "audit"],
+  "exclude_columns": {
+    "users": ["password_hash", "token"]
+  },
+  "row_value_columns": {
+    "products": ["name", "category"],
+    "orders": ["status", "shipping_city"]
+  }
+}
+```
+
+**Fields**
+
+| Field | Type | Effect |
+|---|---|---|
+| `include_tables` | list of strings | Only index these tables |
+| `exclude_tables` | list of strings | Skip these tables |
+| `include_columns` | `{table: [cols]}` | Only index listed columns per table |
+| `exclude_columns` | `{table: [cols]}` | Skip listed columns per table |
+| `row_value_tables` | list of strings | Enable row-value indexing for these tables |
+| `row_value_columns` | `{table: [cols]}` | Index only these columns as searchable row values |
+
+Leave blank (or `{}`) to index everything with no restrictions.
+"""
+
+
+def render_upload_page() -> None:
+    st.title("Add Data Source")
+    st.markdown(
+        "Upload a **CSV** or **SQLite** database file to register it as a new data source. "
+        "Each uploaded CSV file gets its own connector with individual indexing rules."
+    )
+
+    if not get_api_key():
+        st.info("Enter your API key in the sidebar before uploading.")
+        return
+
+    tab_csv, tab_sqlite = st.tabs(["CSV File", "SQLite Database"])
+
+    with tab_csv:
+        _render_csv_upload()
+
+    with tab_sqlite:
+        _render_sqlite_upload()
+
+
+def _render_csv_upload() -> None:
+    st.subheader("Upload CSV File")
+    with st.form("csv_upload_form", clear_on_submit=True):
+        uploaded = st.file_uploader(
+            "Choose a CSV file",
+            type=["csv"],
+            help="The file will be stored on the server and registered as a new data source.",
+        )
+        source_id = st.text_input(
+            "Source ID",
+            placeholder="e.g. sales_q1_2025",
+            help="A unique identifier for this data source. Only letters, digits, underscores and hyphens.",
+        )
+        description = st.text_input(
+            "Description (optional)",
+            placeholder="e.g. Q1 2025 sales data",
+        )
+        rules_json = st.text_area(
+            "Indexing Rules (optional JSON)",
+            value="",
+            height=150,
+            help=_INDEXING_RULES_HELP,
+            placeholder='{\n  "row_value_columns": {\n    "my_table": ["name", "category"]\n  }\n}',
+        )
+
+        submitted = st.form_submit_button("Upload & Register", type="primary")
+
+    if submitted:
+        if not uploaded:
+            st.error("Please select a CSV file.")
+            return
+        if not source_id.strip():
+            st.error("Source ID is required.")
+            return
+
+        # Validate JSON before sending
+        rules_text = rules_json.strip() or "{}"
+        try:
+            json.loads(rules_text)
+        except json.JSONDecodeError as exc:
+            st.error(f"Invalid JSON in Indexing Rules: {exc}")
+            return
+
+        with st.spinner(f"Uploading {uploaded.name}..."):
+            result = post(
+                "/api/upload/csv",
+                data={
+                    "source_id": source_id.strip(),
+                    "description": description.strip(),
+                    "indexing_rules_json": rules_text,
+                },
+                files={"file": (uploaded.name, uploaded.getvalue(), "text/csv")},
+            )
+
+        if result and result.get("success"):
+            st.success(
+                f"Source **{result['source_id']}** registered from `{result['file']}`. "
+                "Use **Index now** in the sidebar to index it."
+            )
+            st.rerun()
+        elif result:
+            st.error(result.get("detail", "Upload failed."))
+
+
+def _render_sqlite_upload() -> None:
+    st.subheader("Upload SQLite Database")
+    with st.form("sqlite_upload_form", clear_on_submit=True):
+        uploaded = st.file_uploader(
+            "Choose a SQLite file (.db or .sqlite)",
+            type=["db", "sqlite"],
+            help="The file will be stored on the server and registered as a new data source.",
+        )
+        source_id = st.text_input(
+            "Source ID",
+            placeholder="e.g. crm_backup",
+            help="A unique identifier for this data source.",
+        )
+        description = st.text_input(
+            "Description (optional)",
+            placeholder="e.g. CRM database backup March 2025",
+        )
+        rules_json = st.text_area(
+            "Indexing Rules (optional JSON)",
+            value="",
+            height=150,
+            help=_INDEXING_RULES_HELP,
+            placeholder='{\n  "exclude_tables": ["logs", "sessions"]\n}',
+        )
+
+        submitted = st.form_submit_button("Upload & Register", type="primary")
+
+    if submitted:
+        if not uploaded:
+            st.error("Please select a SQLite file.")
+            return
+        if not source_id.strip():
+            st.error("Source ID is required.")
+            return
+
+        rules_text = rules_json.strip() or "{}"
+        try:
+            json.loads(rules_text)
+        except json.JSONDecodeError as exc:
+            st.error(f"Invalid JSON in Indexing Rules: {exc}")
+            return
+
+        with st.spinner(f"Uploading {uploaded.name}..."):
+            result = post(
+                "/api/upload/sqlite",
+                data={
+                    "source_id": source_id.strip(),
+                    "description": description.strip(),
+                    "indexing_rules_json": rules_text,
+                },
+                files={"file": (uploaded.name, uploaded.getvalue(), "application/octet-stream")},
+            )
+
+        if result and result.get("success"):
+            st.success(
+                f"Source **{result['source_id']}** registered from `{result['file']}`. "
+                "Use **Index now** in the sidebar to index it."
+            )
+            st.rerun()
+        elif result:
+            st.error(result.get("detail", "Upload failed."))
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     sources = render_sidebar()
 
-    tab_search, tab_browse = st.tabs(["Search", "Browse Sources"])
+    tab_search, tab_browse, tab_upload = st.tabs(["Search", "Browse Sources", "Add Source"])
     with tab_search:
         render_search_page(sources)
     with tab_browse:
         render_browse_page()
+    with tab_upload:
+        render_upload_page()
 
 
 if __name__ == "__main__":

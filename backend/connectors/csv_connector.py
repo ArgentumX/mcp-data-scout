@@ -1,6 +1,12 @@
-"""CSV data source connector — scans a directory for CSV files."""
+"""
+CSV data source connectors.
+
+CSVConnector   — scans a directory for CSV files (used internally).
+CSVFileConnector — wraps a single CSV file as its own named source.
+"""
 
 import csv
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +17,9 @@ from connectors.abstraction.base import (
     SourceInfo,
     TableMeta,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class CSVConnector(BaseConnector):
@@ -109,7 +118,8 @@ class CSVConnector(BaseConnector):
                 row_count=row_count,
                 path=csv_file.name,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read CSV file '%s': %s", csv_file, exc)
             return None
 
     @staticmethod
@@ -132,3 +142,49 @@ class CSVConnector(BaseConnector):
             except (ValueError, TypeError):
                 return "REAL"
         return "TEXT"
+
+
+# ---------------------------------------------------------------------------
+# Per-file CSV connector (one connector = one CSV file)
+# ---------------------------------------------------------------------------
+
+class CSVFileConnector(CSVConnector):
+    """
+    A CSVConnector that wraps a single CSV file instead of a directory.
+
+    source_type is reported as "csv_file" so the UI can distinguish it.
+    The file is placed in a temporary single-file directory so the parent
+    CSVConnector directory-scanning logic works unchanged.
+    """
+
+    def __init__(
+        self,
+        source_id: str,
+        file_path: str,
+        description: str = "",
+        indexing_rules: IndexingRules | None = None,
+    ):
+        self._file_path = Path(file_path)
+        # Use the file's parent directory but only expose this one file.
+        super().__init__(
+            source_id=source_id,
+            directory=str(self._file_path.parent),
+            description=description or f"CSV file: {self._file_path.name}",
+            indexing_rules=indexing_rules,
+        )
+        self._single_file = self._file_path.name
+
+    def get_source_info(self) -> SourceInfo:
+        return SourceInfo(
+            source_id=self.source_id,
+            source_type="csv_file",
+            description=self.description,
+            location=str(self._file_path),
+        )
+
+    def _csv_files(self) -> list[Path]:
+        """Override: yield only the single file this connector owns."""
+        p = self._file_path
+        if p.exists():
+            return [p]
+        return []

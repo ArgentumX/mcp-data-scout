@@ -442,11 +442,28 @@ class SearchEngine:
 
     @staticmethod
     def _build_fts_query(query: str) -> str:
-        """Build an FTS5-safe prefix-match query string."""
-        special = set('".:-*^()OR AND NOT')
+        """
+        Build an FTS5-safe prefix-match query string.
+
+        Each whitespace-separated token is stripped of FTS5 special characters
+        (individual characters, not keywords) and wrapped in a quoted prefix
+        expression so that e.g. "ord" matches "order".  Tokens that become empty
+        after stripping are skipped.  The special characters removed are those
+        that have syntactic meaning inside an FTS5 MATCH expression.
+        """
+        # Characters that are special in FTS5 expressions and must be removed
+        # from user input to prevent syntax errors.  Note: this is a set of
+        # *characters*, not of keywords like OR/AND/NOT.  Treating OR/AND/NOT
+        # as keywords here would be incorrect because a user might legitimately
+        # search for a column called "not_null".
+        _FTS5_SPECIAL_CHARS = set('"\'.-:*^()+')
         safe = []
         for token in query.strip().split():
-            clean = "".join(c for c in token if c not in special)
+            clean = "".join(c for c in token if c not in _FTS5_SPECIAL_CHARS)
             if clean:
                 safe.append(f'"{clean}"*')
-        return " OR ".join(safe) if safe else f'"{query}"'
+        # Fall back to a plain quoted term if nothing survived stripping.
+        if not safe:
+            fallback = "".join(c for c in query if c not in _FTS5_SPECIAL_CHARS).strip()
+            return f'"{fallback}"' if fallback else '""'
+        return " OR ".join(safe)

@@ -1,5 +1,7 @@
 """
-Seed script: creates realistic sample data in SQLite and CSV.
+Seed script: creates realistic sample data in SQLite and CSV,
+then registers all sources (SQLite + per-file CSV connectors) into the
+shared manifest so the server picks them up on startup.
 
 SQLite database (sample.db):
   - customers      — client profiles
@@ -8,8 +10,8 @@ SQLite database (sample.db):
   - order_items    — order line items
   - employees      — company staff
 
-CSV files:
-  - sales_regions.csv     — regional sales data
+CSV files (written to UPLOADS_DIR, each gets its own CSVFileConnector):
+  - sales_regions.csv       — regional sales data
   - marketing_campaigns.csv — campaign performance
   - inventory_snapshot.csv  — stock levels
 """
@@ -22,7 +24,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 SQLITE_PATH = Path(os.getenv("SQLITE_DB_PATH") or "/data/sqlite/sample.db")
-CSV_DIR = Path(os.getenv("CSV_DIR") or "/data/csv")
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR") or "/data/uploads")
 SEED = 42
 random.seed(SEED)
 
@@ -210,20 +212,26 @@ def seed_sqlite():
 
 
 # ---------------------------------------------------------------------------
-# CSV seed
+# CSV seed — written directly to UPLOADS_DIR
 # ---------------------------------------------------------------------------
 
-def write_csv(filename: str, headers: list[str], rows: list[list]):
-    path = CSV_DIR / filename
+def write_csv(filename: str, headers: list[str], rows: list[list]) -> Path:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    path = UPLOADS_DIR / filename
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
         writer.writerows(rows)
     print(f"CSV written: {path} ({len(rows)} rows)")
+    return path
 
 
-def seed_csv():
-    CSV_DIR.mkdir(parents=True, exist_ok=True)
+def seed_csv() -> list[tuple[str, Path, str]]:
+    """
+    Generate seed CSV files and return a list of
+    (source_id, file_path, description) tuples ready for registration.
+    """
+    results: list[tuple[str, Path, str]] = []
 
     # sales_regions.csv
     regions = ["North", "South", "East", "West", "Central"]
@@ -238,7 +246,8 @@ def seed_csv():
                 new_cust = random.randint(10, 300)
                 return_rate = round(random.uniform(0.5, 8.0), 2)
                 rows.append([region, month, year, revenue, units, new_cust, return_rate])
-    write_csv("sales_regions.csv", headers, rows)
+    path = write_csv("sales_regions.csv", headers, rows)
+    results.append(("sales_regions", path, "Regional sales data (2023–2024)"))
 
     # marketing_campaigns.csv
     channels = ["Email", "Social Media", "Search Ads", "Display Ads",
@@ -259,7 +268,8 @@ def seed_csv():
         revenue = round(conversions * random.uniform(20, 500), 2)
         rows.append([i, name, channel, sd, ed, budget, impressions,
                      clicks, conversions, revenue])
-    write_csv("marketing_campaigns.csv", headers, rows)
+    path = write_csv("marketing_campaigns.csv", headers, rows)
+    results.append(("marketing_campaigns", path, "Marketing campaign performance data"))
 
     # inventory_snapshot.csv
     headers = ["product_id", "product_name", "category", "warehouse",
@@ -288,7 +298,73 @@ def seed_csv():
             restock = rand_date(date(2024, 1, 1), date(2025, 3, 1))
             cost = round(price * random.uniform(0.3, 0.7), 2)
             rows.append([pid, name, cat, wh, qty, reserved, reorder, restock, cost])
-    write_csv("inventory_snapshot.csv", headers, rows)
+    path = write_csv("inventory_snapshot.csv", headers, rows)
+    results.append(("inventory_snapshot", path, "Inventory snapshot across warehouses"))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Register all seeded sources into the manifest
+# ---------------------------------------------------------------------------
+
+def register_seeded_sources(csv_sources: list[tuple[str, Path, str]]) -> None:
+    """
+    Register seeded sources (SQLite + per-file CSVs) into the manifest so
+    the server treats them the same as any user-uploaded source.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from server.source_registry import (
+        SourceRegistry,
+        SOURCES_MANIFEST,
+        _indexing_rules_to_dict,
+    )
+    from connectors.sqlite_connector import SQLiteConnector
+    from connectors.csv_connector import CSVFileConnector
+    from connectors.abstraction.base import IndexingRules
+
+    SQLITE_INDEXING_RULES = IndexingRules(
+        exclude_tables={"sqlite_sequence"},
+        exclude_columns={
+            "customers": {"customer_id"},
+            "employees": {"employee_id", "manager_id"},
+            "order_items": {"item_id", "order_id", "product_id"},
+            "orders": {"order_id", "customer_id"},
+            "products": {"product_id"},
+        },
+        row_value_tables={"customers", "employees", "orders", "products"},
+        row_value_columns={
+            "customers": {"first_name", "last_name", "email", "city", "signup_date"},
+            "employees": {"full_name", "department", "position", "hire_date"},
+            "orders": {"order_date", "status", "shipping_city"},
+            "products": {"name", "category", "created_at"},
+        },
+    )
+
+    reg = SourceRegistry(manifest_path=SOURCES_MANIFEST)
+
+    # Register SQLite source as dynamic so it appears in the manifest
+    sqlite_connector = SQLiteConnector(
+        source_id="sqlite_main",
+        db_path=str(SQLITE_PATH),
+        description="Main SQLite database with business data",
+        indexing_rules=SQLITE_INDEXING_RULES,
+    )
+    reg.register_dynamic(sqlite_connector)
+
+    # Register each CSV file as its own dynamic source
+    for source_id, file_path, description in csv_sources:
+        connector = CSVFileConnector(
+            source_id=source_id,
+            file_path=str(file_path),
+            description=description,
+            indexing_rules=IndexingRules(),
+        )
+        reg.register_dynamic(connector)
+
+    print(f"Registered {1 + len(csv_sources)} sources into manifest: {SOURCES_MANIFEST}")
 
 
 # ---------------------------------------------------------------------------
@@ -299,5 +375,7 @@ if __name__ == "__main__":
     print("Seeding SQLite database...")
     seed_sqlite()
     print("Seeding CSV files...")
-    seed_csv()
+    csv_sources = seed_csv()
+    print("Registering seeded sources into manifest...")
+    register_seeded_sources(csv_sources)
     print("Done.")

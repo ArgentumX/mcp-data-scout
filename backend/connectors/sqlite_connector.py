@@ -39,13 +39,19 @@ class SQLiteConnector(BaseConnector):
             location=str(self.db_path),
         )
 
+    # SQLite internal/system tables that should never be indexed regardless of rules.
+    _SYSTEM_TABLES: frozenset[str] = frozenset({"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"})
+
     def list_tables(self) -> list[TableMeta]:
         conn = self._connect()
         try:
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             )
-            table_names = [row[0] for row in cursor.fetchall()]
+            table_names = [
+                row[0] for row in cursor.fetchall()
+                if row[0] not in self._SYSTEM_TABLES
+            ]
             tables = []
             for name in table_names:
                 if not self.should_index_table(name):
