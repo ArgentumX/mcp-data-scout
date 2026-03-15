@@ -4,11 +4,24 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from connectors.abstraction.base import BaseConnector, ColumnMeta, SourceInfo, TableMeta
+from connectors.abstraction.base import (
+    BaseConnector,
+    ColumnMeta,
+    IndexingRules,
+    SourceInfo,
+    TableMeta,
+)
 
 
 class SQLiteConnector(BaseConnector):
-    def __init__(self, source_id: str, db_path: str, description: str = ""):
+    def __init__(
+        self,
+        source_id: str,
+        db_path: str,
+        description: str = "",
+        indexing_rules: IndexingRules | None = None,
+    ):
+        super().__init__(indexing_rules=indexing_rules)
         self.source_id = source_id
         self.db_path = Path(db_path)
         self.description = description or f"SQLite database: {self.db_path.name}"
@@ -35,6 +48,8 @@ class SQLiteConnector(BaseConnector):
             table_names = [row[0] for row in cursor.fetchall()]
             tables = []
             for name in table_names:
+                if not self.should_index_table(name):
+                    continue
                 meta = self._build_table_meta(conn, name)
                 tables.append(meta)
             return tables
@@ -49,6 +64,8 @@ class SQLiteConnector(BaseConnector):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (path,)
             )
             if cursor.fetchone() is None:
+                return None
+            if not self.should_index_table(path):
                 return None
             return self._build_table_meta(conn, path)
         finally:
@@ -78,6 +95,8 @@ class SQLiteConnector(BaseConnector):
         columns = []
         for col in col_rows:
             col_name = col["name"]
+            if not self.should_index_column(table_name, col_name):
+                continue
             col_type = col["type"] or "TEXT"
             sample_values = []
             for row in sample_rows:

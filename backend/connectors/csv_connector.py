@@ -4,11 +4,24 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from connectors.abstraction.base import BaseConnector, ColumnMeta, SourceInfo, TableMeta
+from connectors.abstraction.base import (
+    BaseConnector,
+    ColumnMeta,
+    IndexingRules,
+    SourceInfo,
+    TableMeta,
+)
 
 
 class CSVConnector(BaseConnector):
-    def __init__(self, source_id: str, directory: str, description: str = ""):
+    def __init__(
+        self,
+        source_id: str,
+        directory: str,
+        description: str = "",
+        indexing_rules: IndexingRules | None = None,
+    ):
+        super().__init__(indexing_rules=indexing_rules)
         self.source_id = source_id
         self.directory = Path(directory)
         self.description = description or f"CSV files in: {self.directory}"
@@ -29,6 +42,8 @@ class CSVConnector(BaseConnector):
     def list_tables(self) -> list[TableMeta]:
         tables = []
         for csv_file in self._csv_files():
+            if not self.should_index_table(csv_file.stem):
+                continue
             meta = self._build_table_meta(csv_file)
             if meta:
                 tables.append(meta)
@@ -40,6 +55,8 @@ class CSVConnector(BaseConnector):
         if not target.exists():
             target = self.directory / (path + ".csv")
         if not target.exists():
+            return None
+        if not self.should_index_table(target.stem):
             return None
         return self._build_table_meta(target)
 
@@ -72,6 +89,8 @@ class CSVConnector(BaseConnector):
 
             columns = []
             for col_name in field_names:
+                if not self.should_index_column(csv_file.stem, col_name):
+                    continue
                 # Infer type from sample values
                 sample_values = [row[col_name] for row in sample_rows if col_name in row]
                 data_type = self._infer_type(sample_values)

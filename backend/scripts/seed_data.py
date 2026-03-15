@@ -21,8 +21,8 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-SQLITE_PATH = Path(os.getenv("SQLITE_DB_PATH"))
-CSV_DIR = Path(os.getenv("CSV_DIR"))
+SQLITE_PATH = Path(os.getenv("SQLITE_DB_PATH") or "/data/sqlite/sample.db")
+CSV_DIR = Path(os.getenv("CSV_DIR") or "/data/csv")
 SEED = 42
 random.seed(SEED)
 

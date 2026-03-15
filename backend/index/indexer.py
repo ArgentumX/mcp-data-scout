@@ -1,10 +1,4 @@
-"""
-Metadata indexer using SQLite FTS5.
-
-Stores table/column metadata from all connectors and provides
-full-text search over source_id, table names, column names,
-and descriptions.
-"""
+"""Metadata and row-value indexer using SQLite FTS5."""
 
 import json
 import sqlite3
@@ -121,9 +115,50 @@ class MetadataIndexer:
                 END
             """)
 
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS row_meta (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_id TEXT NOT NULL,
+                    table_path TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    row_number INTEGER NOT NULL,
+                    row_json TEXT NOT NULL,
+                    row_text TEXT NOT NULL,
+                    UNIQUE(source_id, table_path, row_number)
+                )
+            """)
+            conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS row_fts USING fts5(
+                    source_id,
+                    table_name,
+                    row_text,
+                    content='row_meta',
+                    content_rowid='id'
+                )
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS row_meta_ai AFTER INSERT ON row_meta BEGIN
+                    INSERT INTO row_fts(rowid, source_id, table_name, row_text)
+                    VALUES (new.id, new.source_id, new.table_name, new.row_text);
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS row_meta_ad AFTER DELETE ON row_meta BEGIN
+                    INSERT INTO row_fts(row_fts, rowid, source_id, table_name, row_text)
+                    VALUES ('delete', old.id, old.source_id, old.table_name, old.row_text);
+                END
+            """)
+
+            self._ensure_row_text_column(conn)
+
             conn.commit()
         finally:
             conn.close()
+
+    def _ensure_row_text_column(self, conn: sqlite3.Connection) -> None:
+        columns = conn.execute("PRAGMA table_info(row_meta)").fetchall()
+        if columns and not any(column[1] == "row_text" for column in columns):
+            conn.execute("ALTER TABLE row_meta ADD COLUMN row_text TEXT NOT NULL DEFAULT ''")
 
     def index_source(self, connector: BaseConnector) -> int:
         """Index all tables from a connector. Returns number of tables indexed."""
@@ -142,8 +177,13 @@ class MetadataIndexer:
                 conn.execute(
                     "DELETE FROM column_meta WHERE source_id = ?", (source_info.source_id,)
                 )
+                conn.execute(
+                    "DELETE FROM row_meta WHERE source_id = ?", (source_info.source_id,)
+                )
 
             for table in tables:
+                sample_rows = connector.get_sample(table.path, limit=25)
+                indexed_column_names = {column.name for column in table.columns}
                 columns_json = json.dumps(
                     [
                         {
@@ -184,6 +224,40 @@ class MetadataIndexer:
                             col.name,
                             col.data_type,
                             json.dumps([str(v) for v in col.sample_values]),
+                        ),
+                    )
+
+                for row_number, sample_row in enumerate(sample_rows, start=1):
+                    normalized_row = {
+                        key: "" if value is None else str(value)
+                        for key, value in sample_row.items()
+                    }
+                    filtered_row = {}
+                    row_text_values = []
+                    for key, value in normalized_row.items():
+                        if key not in indexed_column_names:
+                            continue
+                        filtered_row[key] = value
+                        if connector.should_index_row_values(table.name, key) and value:
+                            row_text_values.append(value)
+
+                    if not filtered_row:
+                        continue
+
+                    row_text = " ".join(row_text_values)
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO row_meta
+                            (source_id, table_path, table_name, row_number, row_json, row_text)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            source_info.source_id,
+                            table.path,
+                            table.name,
+                            row_number,
+                            json.dumps(filtered_row),
+                            row_text,
                         ),
                     )
             conn.commit()

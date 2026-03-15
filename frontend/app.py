@@ -13,6 +13,10 @@ import requests
 import streamlit as st
 
 API_BASE = os.getenv("API_BASE_URL")
+API_KEY_HEADER = "X-API-Key"
+
+if "api_key" not in st.session_state:
+    st.session_state["api_key"] = ""
 
 st.set_page_config(
     page_title="Data Scout",
@@ -26,31 +30,71 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 
-def get(path: str, params: dict | None = None) -> Any | None:
+def get_api_key() -> str:
+    return st.session_state.get("api_key", "").strip()
+
+
+def get_headers() -> dict[str, str]:
+    api_key = get_api_key()
+    return {API_KEY_HEADER: api_key} if api_key else {}
+
+
+def handle_request_error(path: str, error: Exception) -> None:
+    if isinstance(error, requests.exceptions.HTTPError) and error.response is not None:
+        detail = ""
+        try:
+            payload = error.response.json()
+            detail = payload.get("detail", "") if isinstance(payload, dict) else ""
+        except ValueError:
+            detail = error.response.text.strip()
+
+        if error.response.status_code == 401:
+            st.error(detail or "Invalid API key. Please check it and try again.")
+            return
+        if error.response.status_code == 500:
+            st.error(detail or "Backend authentication is not configured correctly.")
+            return
+        st.error(f"Request failed [{path}]: {detail or error}")
+        return
+
+    st.error(f"Request failed [{path}]: {error}")
+
+
+def get(path: str, params: Any = None) -> Any | None:
+    """
+    GET request to the backend.
+    params can be a dict or a list of (key, value) tuples.
+    Passing a list of tuples allows repeated keys, e.g.:
+      [("match_types", "table"), ("match_types", "row")]
+    which FastAPI parses as list[str].
+    """
     try:
-        resp = requests.get(f"{API_BASE}{path}", params=params, timeout=10)
+        resp = requests.get(
+            f"{API_BASE}{path}",
+            params=params,
+            headers=get_headers(),
+            timeout=10,
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        st.error(
-            f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
+        st.error(f"Cannot connect to backend at {API_BASE}. Is the server running?")
         return None
     except Exception as e:
-        st.error(f"Request failed [{path}]: {e}")
+        handle_request_error(path, e)
         return None
 
 
 def post(path: str) -> Any | None:
     try:
-        resp = requests.post(f"{API_BASE}{path}", timeout=15)
+        resp = requests.post(f"{API_BASE}{path}", headers=get_headers(), timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        st.error(
-            f"Cannot connect to backend at {API_BASE}. Is the MCP server running?")
+        st.error(f"Cannot connect to backend at {API_BASE}. Is the server running?")
         return None
     except Exception as e:
-        st.error(f"Request failed [{path}]: {e}")
+        handle_request_error(path, e)
         return None
 
 
@@ -61,6 +105,20 @@ def post(path: str) -> Any | None:
 def render_sidebar() -> list[dict]:
     st.sidebar.title("Data Scout")
     st.sidebar.caption("Data Discovery Tool")
+    st.sidebar.divider()
+    st.sidebar.subheader("API Access")
+    st.sidebar.text_input(
+        "API Key",
+        type="password",
+        key="api_key",
+        placeholder="Enter API key",
+        help="Used for all backend requests.",
+    )
+
+    if not get_api_key():
+        st.sidebar.info("Enter your API key to load sources and search data.")
+        return []
+
     st.sidebar.divider()
     st.sidebar.subheader("Data Sources")
 
@@ -88,8 +146,7 @@ def render_sidebar() -> list[dict]:
                     st.success(f"Indexed {result['tables_indexed']} tables")
                     st.rerun()
                 else:
-                    err = result.get(
-                        "error", "Unknown error") if result else "No response"
+                    err = result.get("error", "Unknown error") if result else "No response"
                     st.error(err)
 
     st.sidebar.divider()
@@ -105,11 +162,18 @@ def render_sidebar() -> list[dict]:
 # Search page
 # ---------------------------------------------------------------------------
 
-def render_search_page():
+def render_search_page(sources: list[dict]) -> None:
     st.title("Data Scout")
     st.markdown(
-        "Search across **tables** and **columns** in all indexed data sources.")
+        "Search across **tables**, **columns**, and indexed **row values** "
+        "in all indexed data sources."
+    )
 
+    if not get_api_key():
+        st.info("Enter your API key in the sidebar to start searching.")
+        return
+
+    # Search bar
     col_input, col_btn = st.columns([5, 1])
     with col_input:
         query = st.text_input(
@@ -119,50 +183,93 @@ def render_search_page():
             key="search_query",
         )
     with col_btn:
-        search_clicked = st.button(
-            "Search", type="primary", use_container_width=True)
+        st.button("Search", type="primary", use_container_width=True)
+
+    # Filters
+    indexed_source_ids = [s["source_id"] for s in sources if s.get("is_indexed")]
+
+    with st.expander("Filters", expanded=True):
+        st.caption("Restrict results by source and index type.")
+
+        if indexed_source_ids:
+            st.markdown("**Sources**")
+            source_cols = st.columns(min(3, len(indexed_source_ids)))
+            for i, sid in enumerate(indexed_source_ids):
+                with source_cols[i % len(source_cols)]:
+                    st.checkbox(sid, value=True, key=f"filter_src_{sid}")
+        else:
+            st.info("No indexed sources available yet.")
+
+        st.markdown("**Result types**")
+        type_cols = st.columns(3)
+        with type_cols[0]:
+            st.checkbox("Tables", value=True, key="filter_type_table")
+        with type_cols[1]:
+            st.checkbox("Columns", value=True, key="filter_type_column")
+        with type_cols[2]:
+            st.checkbox("Rows", value=True, key="filter_type_row")
 
     if not query:
         st.info("Enter a search term above to discover tables and columns.")
         return
 
-    if query:
-        results: list[dict] | None = get(
-            "/api/search", params={"q": query, "limit": 50})
-        if results is None:
-            return
+    # Build query params as list of (key, value) tuples so that repeated
+    # keys are sent correctly: ?source_ids=a&source_ids=b
+    # FastAPI with Query() annotation parses these as list[str].
+    params: list[tuple[str, str]] = [("q", query), ("limit", "50")]
 
-        if not results:
-            st.warning(f"No results found for **{query}**")
-            return
+    selected_sources = [
+        sid for sid in indexed_source_ids
+        if st.session_state.get(f"filter_src_{sid}", True)
+    ]
+    for sid in selected_sources:
+        params.append(("source_ids", sid))
 
-        # Group by source
-        by_source: dict[str, list[dict]] = {}
-        for r in results:
-            sid = r["source_id"]
-            by_source.setdefault(sid, []).append(r)
+    selected_types = [
+        t for t in ("table", "column", "row")
+        if st.session_state.get(f"filter_type_{t}", True)
+    ]
+    for t in selected_types:
+        params.append(("match_types", t))
 
-        st.markdown(f"**{len(results)} result(s)** for `{query}`")
+    results: list[dict] | None = get("/api/search", params=params)
+    if results is None:
+        return
+
+    if not results:
+        st.warning(f"No results found for **{query}**")
+        return
+
+    # Group by source
+    by_source: dict[str, list[dict]] = {}
+    for r in results:
+        by_source.setdefault(r["source_id"], []).append(r)
+
+    st.markdown(f"**{len(results)} result(s)** for `{query}`")
+    st.divider()
+
+    for source_id, source_results in by_source.items():
+        source_type = source_results[0].get("source_type", "")
+        badge = "🗄️ SQLite" if source_type == "sqlite" else "📄 CSV"
+        st.subheader(f"{badge} — `{source_id}`")
+        for res in source_results:
+            render_result_card(res)
         st.divider()
 
-        for source_id, source_results in by_source.items():
-            source_type = source_results[0].get("source_type", "")
-            type_badge = "🗄️ SQLite" if source_type == "sqlite" else "📄 CSV"
-            st.subheader(f"{type_badge} — `{source_id}`")
-            for res in source_results:
-                render_result_card(res)
-            st.divider()
 
-
-def render_result_card(res: dict):
+def render_result_card(res: dict) -> None:
     match_type = res.get("match_type", "table")
     table_name = res.get("table_name", "")
     table_path = res.get("table_path", "")
     source_id = res.get("source_id", "")
     col_name = res.get("column_name")
+    matched_row = res.get("matched_row")
+    matched_row_number = res.get("matched_row_number")
 
     if match_type == "table":
         title = f"📋 Table: **{table_name}**"
+    elif match_type == "row":
+        title = f"🧾 Row match in **{table_name}**"
     else:
         title = f"🔤 Column: **{col_name}** in `{table_name}`"
 
@@ -177,8 +284,7 @@ def render_result_card(res: dict):
         if columns:
             col_names = [c["name"] for c in columns]
             if col_name:
-                col_labels = [f"**{c}**" if c ==
-                              col_name else c for c in col_names]
+                col_labels = [f"**{c}**" if c == col_name else c for c in col_names]
             else:
                 col_labels = col_names
             st.caption(
@@ -186,33 +292,31 @@ def render_result_card(res: dict):
                 + ("…" if len(col_names) > 15 else "")
             )
 
+        if matched_row:
+            if matched_row_number is not None:
+                st.caption(f"Sample row #{matched_row_number}")
+            st.dataframe(pd.DataFrame([matched_row]), use_container_width=True, hide_index=True)
+
         with st.expander("View schema & sample data"):
             schema: dict | None = get(f"/api/schema/{source_id}/{table_path}")
             if schema and schema.get("success"):
                 col_data = schema.get("columns", [])
                 if col_data:
                     st.markdown("**Schema**")
-                    df_schema = pd.DataFrame(
-                        [
-                            {
-                                "Column": c["name"],
-                                "Type": c["data_type"],
-                                "Sample values": ", ".join(
-                                    str(v) for v in c.get("sample_values", [])
-                                ),
-                            }
-                            for c in col_data
-                        ]
-                    )
-                    st.dataframe(
-                        df_schema, use_container_width=True, hide_index=True)
+                    df_schema = pd.DataFrame([
+                        {
+                            "Column": c["name"],
+                            "Type": c["data_type"],
+                            "Sample values": ", ".join(str(v) for v in c.get("sample_values", [])),
+                        }
+                        for c in col_data
+                    ])
+                    st.dataframe(df_schema, use_container_width=True, hide_index=True)
 
                 sample = schema.get("sample_rows", [])
                 if sample:
                     st.markdown("**Sample rows**")
-                    st.dataframe(
-                        pd.DataFrame(sample), use_container_width=True, hide_index=True
-                    )
+                    st.dataframe(pd.DataFrame(sample), use_container_width=True, hide_index=True)
             elif schema:
                 st.error(schema.get("error", "Failed to load schema"))
 
@@ -221,29 +325,30 @@ def render_result_card(res: dict):
 # Browse page
 # ---------------------------------------------------------------------------
 
-def render_browse_page():
+def render_browse_page() -> None:
     st.title("Browse Sources")
     st.markdown("View all indexed tables and their schemas.")
+
+    if not get_api_key():
+        st.info("Enter your API key in the sidebar to browse indexed tables.")
+        return
 
     tables: list[dict] | None = get("/api/tables")
     if tables is None:
         return
 
     if not tables:
-        st.warning(
-            "No tables indexed yet. Use the sidebar to index sources first.")
+        st.warning("No tables indexed yet. Use the sidebar to index sources first.")
         return
 
-    # Group by source_id
     by_source: dict[str, list[dict]] = {}
     for t in tables:
-        sid = t["source_id"]
-        by_source.setdefault(sid, []).append(t)
+        by_source.setdefault(t["source_id"], []).append(t)
 
     for source_id, source_tables in by_source.items():
         source_type = source_tables[0].get("source_type", "")
-        type_badge = "🗄️" if source_type == "sqlite" else "📄"
-        st.subheader(f"{type_badge} {source_id}")
+        badge = "🗄️" if source_type == "sqlite" else "📄"
+        st.subheader(f"{badge} {source_id}")
         st.caption(f"{len(source_tables)} table(s)")
 
         for table in source_tables:
@@ -251,18 +356,14 @@ def render_browse_page():
             with st.expander(label):
                 cols = table.get("columns", [])
                 if cols:
-                    df = pd.DataFrame(
-                        [
-                            {
-                                "Column": c["name"],
-                                "Type": c["data_type"],
-                                "Sample values": ", ".join(
-                                    str(v) for v in c.get("sample_values", [])
-                                ),
-                            }
-                            for c in cols
-                        ]
-                    )
+                    df = pd.DataFrame([
+                        {
+                            "Column": c["name"],
+                            "Type": c["data_type"],
+                            "Sample values": ", ".join(str(v) for v in c.get("sample_values", [])),
+                        }
+                        for c in cols
+                    ])
                     st.dataframe(df, use_container_width=True, hide_index=True)
 
         st.divider()
@@ -272,12 +373,12 @@ def render_browse_page():
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    render_sidebar()
+def main() -> None:
+    sources = render_sidebar()
 
     tab_search, tab_browse = st.tabs(["Search", "Browse Sources"])
     with tab_search:
-        render_search_page()
+        render_search_page(sources)
     with tab_browse:
         render_browse_page()
 
