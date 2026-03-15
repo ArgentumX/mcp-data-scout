@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from connectors.base import BaseConnector, ColumnMeta, SourceInfo, TableMeta
+from connectors.abstraction.base import BaseConnector, ColumnMeta, SourceInfo, TableMeta
 
 
 class CSVConnector(BaseConnector):

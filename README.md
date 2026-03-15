@@ -57,7 +57,7 @@ Then click **"Index All Sources"** in the sidebar to index them.
 
 ---
 
-## Data Sources
+## Test Data Sources
 
 | ID | Type | Description |
 |----|------|-------------|
@@ -191,26 +191,6 @@ mcp-data-scout/
 
 ---
 
-## Local Development (without Docker)
-
-```bash
-pip install -r requirements.txt
-
-# Generate sample data
-SQLITE_DB_PATH=./data/sqlite/sample.db CSV_DIR=./data/csv python scripts/seed_data.py
-
-# Start MCP + REST server
-SQLITE_DB_PATH=./data/sqlite/sample.db \
-CSV_DIR=./data/csv \
-INDEX_DB_PATH=./data/index.db \
-python -m server.server
-
-# In another terminal — start UI
-API_BASE_URL=http://localhost:8000 streamlit run ui/app.py
-```
-
----
-
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -220,7 +200,7 @@ API_BASE_URL=http://localhost:8000 streamlit run ui/app.py
 | `INDEX_DB_PATH` | `/data/index.db` | Path to FTS5 index database |
 | `MCP_HOST` | `0.0.0.0` | Server bind address |
 | `MCP_PORT` | `8000` | Server port |
-| `API_BASE_URL` | `http://mcp:8000` | Backend URL for Streamlit UI |
+| `API_BASE_URL` | `http://backend:8000` | Backend URL for Streamlit UI |
 
 ---
 

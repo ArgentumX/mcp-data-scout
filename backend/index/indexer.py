@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from connectors.base import BaseConnector, TableMeta
+from connectors.abstraction.base import BaseConnector, TableMeta
 
 
 INDEX_DB_PATH = Path("/data/index.db")

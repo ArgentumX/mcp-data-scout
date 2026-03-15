@@ -1,9 +1,9 @@
 services:
-  mcp:
+  backend:
     build:
-      context: .
-      dockerfile: Dockerfile.server
-    container_name: data-scout-mcp
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: data-scout-backend
     ports:
       - "8000:8000"
     volumes:
@@ -23,17 +23,17 @@ services:
       retries: 5
       start_period: 15s
 
-  ui:
+  frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.ui
-    container_name: data-scout-ui
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: data-scout-frontend
     ports:
       - "8501:8501"
     env_file:
       - .env
     depends_on:
-      mcp:
+      backend:
         condition: service_healthy
 
 volumes:

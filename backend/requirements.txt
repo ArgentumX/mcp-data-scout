@@ -1,0 +1,7 @@
+# MCP server
+fastmcp>=3.0.0
+mcp>=1.0.0
+
+# REST API (server uses FastAPI for Streamlit communication)
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0

@@ -6,7 +6,7 @@ Loaded from environment variables / config at startup.
 import os
 from pathlib import Path
 
-from connectors.base import BaseConnector, SourceInfo
+from connectors.abstraction.base import BaseConnector, SourceInfo
 from connectors.csv_connector import CSVConnector
 from connectors.sqlite_connector import SQLiteConnector
 

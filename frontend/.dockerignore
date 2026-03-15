@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+**/__pycache__
+**/*.py[cod]
+# C extensions
+*.so
+
+# Environments
+.Python
+env/
+venv/
+virtualenv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.memo
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Editors/VCS
+.git
+.gitignore
+.gitattributes
+.hg
+.hgignore
+.svn
+.cache
+.tox
+.idea  # Integrated Development Environment files (e.g., PyCharm)
+.vscode # Visual Studio Code files
+
+# Testing and coverage
+nosetests.xml
+coverage.xml
+*.cover
+.coverage.*
+.hypothesis
+.mypy_cache
+.pytest_cache
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# OS and misc
+.DS_Store
+Thumbs.db
