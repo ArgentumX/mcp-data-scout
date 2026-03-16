@@ -2,7 +2,7 @@
 set -e
 
 UPLOADS_DIR="${UPLOADS_DIR:-/data/uploads}"
-DB_PATH="${UPLOADS_DIR}/sqlite_main.db"
+DB_PATH="${UPLOADS_DIR}/seeded_sqlite_main.db"
 SEED="${SEED:-false}"
 
 # Seed data only when SEED=true and the DB hasn't been created yet
