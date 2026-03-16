@@ -36,6 +36,13 @@ def get_seed_sqlite_path() -> Path:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+def is_source_seeded(filename: str) -> bool:
+    """Check if a CSV file already exists"""
+    path = UPLOADS_DIR / filename
+    return path.exists()
+
+
 def rand_date(start: date, end: date) -> str:
     delta = (end - start).days
     return str(start + timedelta(days=random.randint(0, delta)))
@@ -67,6 +74,12 @@ PRODUCT_NAMES = [
 
 def seed_sqlite():
     sqlite_path = get_seed_sqlite_path()
+    
+    # Skip if already seeded
+    if is_source_seeded(SQLITE_FILENAME):
+        print(f"SQLite already seeded: {sqlite_path}, skipping.")
+        return
+
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     if sqlite_path.exists():
         sqlite_path.unlink()
@@ -223,6 +236,12 @@ def seed_sqlite():
 def write_csv(filename: str, headers: list[str], rows: list[list]) -> Path:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     path = UPLOADS_DIR / filename
+    
+    # Skip if already seeded
+    if is_source_seeded(filename):
+        print(f"CSV already seeded: {path}, skipping.")
+        return path
+    
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
