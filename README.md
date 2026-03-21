@@ -105,6 +105,7 @@ docker run --network host mcp-data-scout-test
 |-------|--------|----------------|
 | **Connectors** | `connectors/` | Read schemas & data from sources |
 | **IndexingRules** | `connectors/abstraction/base.py` | Customizes indexing rules for each single connector |
+| **BaseConnector** | `connectors/abstraction/base.py` | Base abstract data source connector class |
 | **CSVConnector** | `connectors/csv_connector.py` | Single-file CSV connector |
 | **SQLiteConnector** | `connectors/sqlite_connector.py` | Single-file SQLite connector |
 | **Indexer** | `index/indexer.py` | Store metadata in SQLite FTS5 index |
